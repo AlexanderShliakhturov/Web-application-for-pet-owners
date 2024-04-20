@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str
     
+    
+    
     # Redis configuration
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379

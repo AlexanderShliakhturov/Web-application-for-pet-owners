@@ -2,8 +2,14 @@ import streamlit as st
 import requests
 from datetime import datetime
 
+import os
+
+# BACKUP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../backups"))
+BACKUP_DIR = "/home/alexander/DB_CP/backups"
 
 API_URL = "http://localhost:8000"
+
+ 
 
 # --- Функция для авторизации ---
 def login():
@@ -75,6 +81,8 @@ def personal_cabinet():
     
     logout_button = st.button(f"Выйти из профиля")
     
+    
+    
     if logout_button:
         response = requests.post(f"{API_URL}/logout/")
         if response.status_code == 200:
@@ -102,6 +110,47 @@ def personal_cabinet():
         st.text(f"Табельный номер: {user_data['tabel_number']}")
         st.text(f"Сегмент: {user_data['segment']}")
         st.text(f"Должность: {user_data['function']}")
+        
+        st.markdown("---") 
+        
+        if "show_pers_promos" not in st.session_state:
+            st.session_state.show_pers_promos = False 
+        
+        show_promos_button = st.button(f"Показать мои промокоды")
+        
+        if show_promos_button:
+            st.session_state.show_pers_promos = not st.session_state.show_pers_promos
+        
+
+        if st.session_state.show_pers_promos:
+            promo_response = requests.get(f"{API_URL}/users/{user_data['user_id']}/promos")
+            if promo_response.status_code == 200:
+                promos = promo_response.json()
+                if promos:
+                    for promo in promos:
+                        with st.expander(f"Промокод: {promo['promo']}"):
+                            st.write(f"**Действителен с:** {promo['valid_from']}")
+                            st.write(f"**Действителен до:** {promo['valid_to']}")
+                            st.write(f"**Тип:** {promo['type']}")
+                            st.write(f"**Активирован:** {'Да' if promo['activated_on'] else 'Нет'}")
+
+                            if not promo['activated_on']:
+                                st.error(f"Промокод {promo['promo']} еще не активирован! Активируйте его, пока он действителен.")
+                                activate_button = st.button(f"Активировать промокод {promo['promo']}", key=f"activate_{promo['promo_id']}")
+                                if activate_button:
+                                    activate_response = requests.put(f"{API_URL}/promos/{promo['promo_id']}/activate", headers=headers)
+                                    if activate_response.status_code == 200:
+                                        st.success(f"Промокод {promo['promo']} успешно активирован!")
+                                    else:
+                                        st.error("Не удалось активировать промокод.")
+                            else:
+                                st.success(f"Промокод {promo['promo']} уже активирован!")
+                else:
+                    st.write("У вас нет активных промокодов.")
+            else:
+                st.error("У вас нет активных промокодов.")
+        
+        st.markdown("---") 
         
         if "is_editing" not in st.session_state:
             st.session_state.is_editing = False 
@@ -215,8 +264,6 @@ def personal_cabinet():
                         st.subheader("Болезни питомца")
         
                         updated_diseases  = []
-                        old_disease_names = []
-                        old_disease_dangers = []
 
                         # Обработка существующих болезней
                         if pet['diseases']:
@@ -274,8 +321,8 @@ def personal_cabinet():
                                 } if feed_name else None
                             }
                          
-                            st.subheader("Данные питомца:")
-                            st.json(pet_data)
+                            # st.subheader("Данные питомца:")
+                            # st.json(pet_data)
                             delete_response = requests.delete(f"{API_URL}/my_pets/{pet['pet_id']}", headers=headers)
                             if delete_response.status_code == 200:
                                 # st.success(f"Питомец {pet['name']} успешно удален.")
@@ -380,33 +427,164 @@ def admin_panel():
         return
     
     headers = {"Authorization": f"Bearer {st.session_state.token}"}
-    user_response = requests.get(f"{API_URL}/me/", headers=headers)
-    if user_response.status_code == 200:
-        user_data = user_response.json()
-        st.write("Добро пожаловать,", user_data["name"], ", вам предоставлены права администратора")
-        st.subheader("Информация о пользователе")
+
+    
+    response = requests.get(f"{API_URL}/check_admin/", headers=headers)
+    user_data = response.json()
+    if user_data['status_type'] == "admin":
+    
+        user_response = requests.get(f"{API_URL}/me/", headers=headers)
+        if user_response.status_code == 200:
+            user_data = user_response.json()
+            st.write("Добро пожаловать,", user_data["name"], ", вам предоставлены права администратора")
+            st.subheader("Информация о пользователе")
+            
+            st.text(f"Номер телефона: {user_data['phone_number']}")
+            st.text(f"Электронная почта: {user_data['mail']}")
+            st.text(f"Адрес: {user_data['address']}")
+            st.text(f"Дата рождения: {str(user_data['birth'])}")
+            st.text(f"Пол: {'Мужской' if user_data['sex'] == 'male' else 'Женский'}")
+            st.text(f"Табельный номер: {user_data['tabel_number']}")
+            st.text(f"Сегмент: {user_data['segment']}")
+            st.text(f"Должность: {user_data['function']}")
         
-        st.text(f"Номер телефона: {user_data['phone_number']}")
-        st.text(f"Электронная почта: {user_data['mail']}")
-        st.text(f"Адрес: {user_data['address']}")
-        st.text(f"Дата рождения: {str(user_data['birth'])}")
-        st.text(f"Пол: {'Мужской' if user_data['sex'] == 'male' else 'Женский'}")
-        st.text(f"Табельный номер: {user_data['tabel_number']}")
-        st.text(f"Сегмент: {user_data['segment']}")
-        st.text(f"Должность: {user_data['function']}")
-    
-    logout_button = st.button(f"Выйти из профиля")
-    
-    if logout_button:
-        st.title("Страница администратора")
-        response = requests.post(f"{API_URL}/logout/")
-        if response.status_code == 200:
-            if "token" in st.session_state:
-                del st.session_state.token
-            st.success("Вы вышли из профиля")
-            return
-        else:
-            st.error("Ошибка")
+        logout_button = st.button(f"Выйти из профиля")
+        
+        st.markdown("---")
+        
+        if logout_button:
+            st.title("Страница администратора")
+            response = requests.post(f"{API_URL}/logout/")
+            if response.status_code == 200:
+                if "token" in st.session_state:
+                    del st.session_state.token
+                st.success("Вы вышли из профиля")
+                return
+            else:
+                st.error("Ошибка")
+                
+                
+        if "show_users" not in st.session_state:
+            st.session_state.show_users = False
+        
+        if st.button("Показать пользователей", key="load_users"):
+            st.session_state.show_users = not st.session_state.show_users
+        
+        if st.session_state.show_users:
+            st.header("Список пользователей")
+                
+            response = requests.get(f"{API_URL}/users")
+            if response.status_code == 200:
+                users =  response.json()
+            else:
+                st.error("Не удалось получить список пользователей.")
+                users = []        
+            
+            if users:
+                for user in users:
+                    with st.expander(f"Пользователь: {user['name']}"):
+                        st.write(f"**Имя:** {user['name']}")
+                        st.write(f"**Email:** {user['mail']}")
+                        st.write(f"**Номер телефона:** {user['phone_number']}")
+                        st.write(f"**Адрес:** {user['address']}")
+                        st.write(f"**Дата рождения:** {user['birth']}")
+                        st.write(f"**Пол:** {'Мужской' if user['sex'] == 'male' else 'Женский'}")
+                        st.write(f"**Табельный номер:** {user['tabel_number']}")
+                        st.write(f"**Сегмент:** {user['segment']}")
+                        st.write(f"**Функция:** {user['function']}")
+                        col1, col2 = st.columns([3, 1])
+                        
+                        with col1:
+                            button_key = f"show_promos_{user['user_id']}"
+                            if button_key not in st.session_state:
+                                st.session_state[button_key] = False  
+
+                            if st.button(f"Показать промокоды {user['name']}", key=f"show_promos_button_{user['user_id']}"):
+                                st.session_state[button_key] = not st.session_state[button_key]
+                            
+                            if st.session_state[button_key]:
+                                promo_response = requests.get(f"{API_URL}/users/{user['user_id']}/promos")
+                                
+                                if promo_response.status_code == 200:
+                                    promo_data = promo_response.json()
+                                    
+                                    if promo_data:
+                                        st.write(f"**Промокоды пользователя {user['name']}:**")
+                                        for promo in promo_data:
+                                            st.write(f"**Промокод:** {promo['promo']}")
+                                            st.write(f"**Срок действия:** с {promo['valid_from']} по {promo['valid_to']}")
+                                            st.write(f"**Тип:** {promo['type']}")
+                                            if promo['activated_on']:
+                                                st.write(f"**Активирован:** {promo['activated_on']}")
+                                            else:
+                                                st.write("**Не активирован**")
+                                            st.write("---")
+                                    else:
+                                        st.write("У этого пользователя нет промокодов.")
+                                else:
+                                    st.error("У этого пользователя нет промокодов.")
+                        with col2:
+                            if st.button("Выдать промокод", key=f"promo_{user['user_id']}"):
+                                promo_response = requests.post(f"{API_URL}/users/{user['user_id']}/generate_promo")
+                    
+                                if promo_response.status_code == 200:
+                                    promo_data = promo_response.json()
+                                    st.success(f"Промокод успешно выдан: **{promo_data['promo']}**")
+                                    st.write(f"**Действителен с:** {promo_data['valid_from']}")
+                                    st.write(f"**Действителен до:** {promo_data['valid_to']}")
+                                    st.write(f"**Тип:** {promo_data['type']}")
+                                else:
+                                    st.error("Не удалось выдать промокод.")
+                
+                
+        st.markdown("---")   
+        st.title("Управление резервными копиями базы данных")    
+        backup_button = st.button("Создать резервную копию базы данных")
+        if backup_button:
+            try:
+                response = requests.post(f"{API_URL}/backup/")
+                if response.status_code == 200:
+                    data = response.json()
+                    st.success(f"Резервная копия успешно создана! 📂")
+                    st.write(f"Файл: `{data['file']}`")
+                else:
+                    st.error(f"Ошибка при создании резервной копии: {response.text}")
+            except Exception as e:
+                st.error(f"Не удалось подключиться к серверу: {e}")
+        
+        downgrade_button = st.button("Откатить базу данных")
+        
+        if "downdrage_button" not in st.session_state:
+            st.session_state.downdrage_button = False
+        
+        if downgrade_button:
+            st.session_state.downdrage_button = not st.session_state.downdrage_button
+        
+        if st.session_state.downdrage_button:
+            backup_files = [f for f in os.listdir(BACKUP_DIR) if f.endswith('.dump')]
+            if backup_files:
+                for backup_file in backup_files:
+                    with st.form(key=backup_file):
+                        st.write(f"Бэкап: {BACKUP_DIR}/{backup_file}")
+                        restore_button = st.form_submit_button(label=f"Откатиться к данной версии")
+                        
+                        if restore_button:
+                            try:
+                                response = requests.post(f"{API_URL}/restore/", json={"backup_file": backup_file})
+                                if response.status_code == 200:
+                                    st.success(f"База данных успешно откатилась к версии: {backup_file}")
+                                else:
+                                    st.error(f"Ошибка при восстановлении базы данных: {response.text}")
+                            except Exception as e:
+                                st.error(f"Не удалось подключиться к серверу: {e}")
+                            
+                                            
+            else:
+                st.warning("Нет доступных бэкапов для восстановления.")
+        
+        
+    else:
+        st.error("У вас недостаточно прав для функций администратора")
 
 
 # --- Главный роутинг ---

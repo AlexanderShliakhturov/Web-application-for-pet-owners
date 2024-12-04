@@ -4,6 +4,21 @@ from pydantic import BaseModel, ValidationError, EmailStr, Field, field_validato
 from enum import Enum
 import re
 
+class RestoreRequest(BaseModel):
+    backup_file: str
+
+
+class SPromoGet(BaseModel):
+    promo_id: int
+    owner_id: int
+    activated_on: Optional[datetime] = Field(None, description="Дата активации промокода")
+    valid_from: datetime = Field(..., description="Дата начала действия промокода")
+    valid_to: datetime = Field(..., description="Дата окончания действия промокода")
+    type: str = Field(..., max_length=50, description="Тип промокода (например, 'sale')")
+    promo: str = Field(..., max_length=50, description="Уникальный код промокода")
+
+
+
 
 #Класс для поля sex, которое может быть либо male либо female 
 class SexEnum(str, Enum):
@@ -13,6 +28,17 @@ class SexEnum(str, Enum):
 class FeedEnum(str, Enum):
     wet = "Влажный"
     dry = "Сухой"
+   
+class RightsEnum(str, Enum):
+    user = "user"
+    admin = "admin" 
+
+    
+class GetRights(BaseModel):
+    user_id: int
+    status_type: Optional[RightsEnum]
+    
+
 
 class SDiseaseAdd(BaseModel):
     disease_name: Optional[str] = Field(None, min_length = 1, max_length=50)

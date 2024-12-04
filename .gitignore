@@ -1,5 +1,5 @@
 __pycache__/
-
+backups/
 # Environments
 .env
 .venv

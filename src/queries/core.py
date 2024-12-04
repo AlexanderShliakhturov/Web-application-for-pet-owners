@@ -62,6 +62,12 @@ async def registration(user_data, password_data):
                                       {'password_hash': password_data['password'],
                                        'login': user_data['mail'],
                                        'user_id': user_id})
+                
+                rights_inser_query = text("""INSERT INTO statuses (user_id, status_type)
+                                          VALUES (:user_id, :status_type)""")
+                
+                await session.execute(rights_inser_query,{"user_id": user_id, "status_type": "user"} )
+                await session.commit()
 
                 print("Пользователь успешно зарегистрирован!")
                 return user_id

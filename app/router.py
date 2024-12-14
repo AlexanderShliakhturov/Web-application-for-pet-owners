@@ -172,6 +172,8 @@ async def get_me(user_data: SUserGet = Depends(get_current_user)):
 @router.get("/check_admin/")
 async def get_me(user_data: SUserGet = Depends(get_current_user)) -> GetRights:
     
+    # db_backup_20241206011022.dump
+    
     check_admin_query = text("""SELECT * from statuses WHERE user_id = :user_id""")
     async with async_session_factory() as session:
         async with session.begin():

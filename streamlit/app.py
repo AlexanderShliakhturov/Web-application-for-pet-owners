@@ -13,6 +13,7 @@ API_URL = "http://localhost:8000"
 
 # --- Функция для авторизации ---
 def login():
+
     st.title("Авторизация")
     email = st.text_input("Почта")
     password = st.text_input("Пароль", type="password")
@@ -492,6 +493,7 @@ def admin_panel():
                         st.write(f"**Табельный номер:** {user['tabel_number']}")
                         st.write(f"**Сегмент:** {user['segment']}")
                         st.write(f"**Функция:** {user['function']}")
+                        st.write(f"**Последнее изменение профиля:** {user['last_updated']}")
                         col1, col2 = st.columns([3, 1])
                         
                         with col1:

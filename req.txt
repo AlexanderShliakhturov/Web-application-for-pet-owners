@@ -3,8 +3,14 @@ asyncpg==0.28.0
 psycopg==3.1.10
 psycopg-binary==3.1.10
 sqlalchemy==2.0.20
+redis==5.0.1
+aioredis==2.0.1
 
 fastapi==0.103.1
 pydantic=2.3.0
 pydantic-settings==2.0.3
 uvicorn==0.23.2
+
+# Для мониторинга
+pandas==2.1.1
+plotly==5.17.0

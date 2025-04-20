@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from src.config import get_auth_data
 from app.schemas import *
 from src.database import async_session_factory
+from src.redis_client import get_redis_token, get_cached_pet_data, cache_pet_data
+from src.monitoring import measure_time
 
 
 
@@ -22,21 +24,15 @@ def get_token(request: Request):
     return token
 
 
+@measure_time("get_current_user")
 async def get_current_user(token: str = Depends(get_token)):
     try:
-        auth_data = get_auth_data()
-        payload = jwt.decode(token, auth_data['secret_key'], algorithms=[auth_data['algorithm']])
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Токен не валидный!')
+        ы
 
-    expire = payload.get('exp')
-    expire_time = datetime.fromtimestamp(int(expire), tz=timezone.utc)
-    if (not expire) or (expire_time < datetime.now(timezone.utc)):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Токен истек')
-
-    user_id = payload.get('sub')
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Не найден ID пользователя')
+    # Verify token in Redis
+    stored_token = await get_redis_token(user_id)
+    if not stored_token or stored_token != token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Token is invalid or expired')
 
     async with async_session_factory() as session:
         async with session.begin():
@@ -54,7 +50,14 @@ async def get_current_user(token: str = Depends(get_token)):
 
 
 
+@measure_time("get_current_pets")
 async def get_current_pets(user: SUserGet = Depends(get_current_user)) -> List[SPetGet]:
+    # Try to get pets from Redis cache
+    cached_pets = await get_cached_pet_data(user.user_id)
+    if cached_pets:
+        return [SPetGet(**pet) for pet in cached_pets]
+
+    # If not in cache, get from database
     async with async_session_factory() as session:
         async with session.begin():
             # Запрос для получения всех питомцев пользователя
@@ -101,6 +104,8 @@ async def get_current_pets(user: SUserGet = Depends(get_current_user)) -> List[S
                     )
                 )
     
+    # Cache the pet data in Redis
+    await cache_pet_data(user.user_id, [pet.model_dump() for pet in pet_list])
     return pet_list
 
 

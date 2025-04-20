@@ -1,13 +1,14 @@
 import streamlit as st
 import requests
 from datetime import datetime
-
+import pandas as pd
+import plotly.express as px
 import os
 
 # BACKUP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../backups"))
 BACKUP_DIR = "/home/alexander/DB_CP/backups"
 
-API_URL = "http://localhost:8000"
+API_URL = "http://localhost:8001"
 
  
 
@@ -588,9 +589,75 @@ def admin_panel():
     else:
         st.error("У вас недостаточно прав для функций администратора")
 
+def monitoring_page():
+    st.title("Мониторинг производительности и событий")
+    
+    # Получаем метрики производительности
+    try:
+        metrics_response = requests.get(f"{API_URL}/monitoring/performance")
+        if metrics_response.status_code == 200:
+            metrics = metrics_response.json()
+            
+            st.header("Метрики производительности")
+            
+            # Создаем вкладки для разных функций
+            for func_name, measurements in metrics.items():
+                with st.expander(f"Метрики для {func_name}"):
+                    if measurements:
+                        # Создаем DataFrame для визуализации
+                        df = pd.DataFrame(measurements)
+                        df['timestamp'] = pd.to_datetime(df['timestamp'])
+                        
+                        # График времени выполнения
+                        fig = px.line(df, x='timestamp', y='execution_time',
+                                    title=f'Время выполнения {func_name} (мс)')
+                        st.plotly_chart(fig)
+                        
+                        # Статистика
+                        st.write("Статистика:")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Среднее время (мс)", 
+                                    f"{df['execution_time'].mean():.2f}")
+                        with col2:
+                            st.metric("Медиана (мс)", 
+                                    f"{df['execution_time'].median():.2f}")
+                        with col3:
+                            st.metric("Макс. время (мс)", 
+                                    f"{df['execution_time'].max():.2f}")
+                    else:
+                        st.info("Нет данных для отображения")
+        else:
+            st.error("Не удалось получить метрики производительности")
+    
+    except Exception as e:
+        st.error(f"Ошибка при получении метрик: {str(e)}")
+    
+    # Получаем PubSub сообщения
+    try:
+        messages_response = requests.get(f"{API_URL}/monitoring/pubsub")
+        if messages_response.status_code == 200:
+            messages = messages_response.json()
+            
+            st.header("События PubSub")
+            
+            if messages:
+                for msg in reversed(messages):  # Показываем самые новые сообщения первыми
+                    with st.expander(f"{msg['timestamp']} - {msg['channel']}"):
+                        st.json(msg['data'])
+            else:
+                st.info("Нет новых событий")
+        else:
+            st.error("Не удалось получить события PubSub")
+    
+    except Exception as e:
+        st.error(f"Ошибка при получении событий: {str(e)}")
 
 # --- Главный роутинг ---
-page = st.sidebar.selectbox("Навигация", ["Авторизация", "Регистрация", "Личный кабинет", "Страница администратора"])
+page = st.sidebar.selectbox(
+    "Навигация", 
+    ["Авторизация", "Регистрация", "Личный кабинет", "Страница администратора", "Мониторинг"]
+)
 
 if page == "Авторизация":
     login()
@@ -598,5 +665,7 @@ elif page == "Регистрация":
     register()
 elif page == "Личный кабинет":
     personal_cabinet()
-elif page == 'Страница администратора':
+elif page == "Страница администратора":
     admin_panel()
+elif page == "Мониторинг":
+    monitoring_page()

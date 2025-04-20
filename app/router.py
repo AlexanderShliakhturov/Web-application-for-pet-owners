@@ -1,4 +1,4 @@
-from fastapi import APIRouter,  HTTPException, Response, status, Depends, Header
+from fastapi import APIRouter,  HTTPException, Response, status, Depends, Header, BackgroundTasks
 import subprocess
 import os
 from app.repository import TaskRepository
@@ -8,10 +8,45 @@ from src.config import settings
 from app.schemas import *
 from app.auth import *
 from app.dependencies import *
+from src.redis_client import publish_event, invalidate_token
+from src.monitoring import get_performance_metrics, get_pubsub_messages, start_pubsub_listener
+import logging
+import asyncio
+import redis
+
+# Настройка логирования
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags= ["Что-то делаем"])
 
 BACKUP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../backups")) 
+
+@router.get("/")
+async def health_check():
+    """Проверка работоспособности сервера"""
+    return {"status": "ok"}
+
+@router.on_event("startup")
+async def startup_event():
+    """Запускаем слушатель PubSub при старте приложения"""
+    logger.info("Инициализация приложения...")
+    try:
+        # Создаем и запускаем задачу для слушателя PubSub
+        asyncio.create_task(start_pubsub_listener())
+        logger.info("Слушатель PubSub успешно запущен")
+    except Exception as e:
+        logger.error(f"Ошибка при запуске слушателя PubSub: {e}")
+        raise
+
+@router.get("/monitoring/performance")
+async def get_metrics():
+    """Получить метрики производительности"""
+    return get_performance_metrics()
+
+@router.get("/monitoring/pubsub")
+async def get_messages():
+    """Получить PubSub сообщения"""
+    return get_pubsub_messages()
 
 @router.post("/restore/")
 def restore_backup(request: RestoreRequest):
@@ -226,10 +261,8 @@ async def get_my_pets(pet_data: List[SPetGet] = Depends(get_current_pets)):
 
 @router.delete("/my_pets/{pet_id}")
 async def delete_pet(pet_id: int, user: SUserGet = Depends(get_current_user)):
-
     async with async_session_factory() as session:
         async with session.begin():
-            
             delete_diseases_query = text("DELETE FROM pets_diseases WHERE pet_id = :pet_id")
             await session.execute(delete_diseases_query, {"pet_id": pet_id})
             
@@ -238,6 +271,14 @@ async def delete_pet(pet_id: int, user: SUserGet = Depends(get_current_user)):
 
             pet_query = text("DELETE FROM pets WHERE pet_id = :pet_id AND owner_id = :user_id")
             result = await session.execute(pet_query, {"pet_id": pet_id, "user_id": user.user_id})
+    
+    # Publish pet deletion event
+    await publish_event("pet_events", {
+        "type": "pet_deleted",
+        "user_id": user.user_id,
+        "pet_id": pet_id,
+        "timestamp": datetime.now().isoformat()
+    })
     
     return {"message": "Питомец и его связанные записи успешно удалены"}
 
@@ -251,14 +292,31 @@ async def add_pet(
     user: SUserGet = Depends(get_current_user)
 ):
     pet_id = await add_pet_to_db(user.user_id, pet_data, disease_data, feed_data)
+    
+    # Publish new pet event
+    await publish_event("pet_events", {
+        "type": "new_pet",
+        "user_id": user.user_id,
+        "pet_id": pet_id,
+        "pet_name": pet_data.name,
+        "timestamp": datetime.now().isoformat()
+    })
+    
     return {"message": "Питомец успешно добавлен", "pet_id": pet_id}
 
 
 
 
 @router.post("/logout/")
-async def logout_user(response: Response):
+async def logout_user(response: Response, user: SUserGet = Depends(get_current_user)):
+    # Invalidate token in Redis
+    await invalidate_token(str(user.user_id))
     response.delete_cookie(key="users_access_token")
+    await publish_event("user_events", {
+        "type": "logout",
+        "user_id": user.user_id,
+        "timestamp": datetime.now().isoformat()
+    })
     return {'message': 'Пользователь успешно вышел из системы'}
 
 
@@ -268,8 +326,16 @@ async def auth_user(response: Response,
     check = await authenticate_user(mail = user_data.mail, password= user_data.password)
     if check is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail= "Неверная почта или пароль")
-    access_token = create_access_token({"sub": str(check)})
+    access_token = await create_access_token({"sub": str(check)})
     response.set_cookie(key = "users_access_token", value= access_token, httponly= True)
+    
+    # Publish login event
+    await publish_event("user_events", {
+        "type": "login",
+        "user_id": check,
+        "timestamp": datetime.now().isoformat()
+    })
+    
     return {'access_token': access_token, "refresh_token": None}
 
 
@@ -287,3 +353,32 @@ async def make_registration(
 async def get_users():
     users = await TaskRepository.get_users()
     return users
+
+@router.get("/debug/redis")
+async def debug_redis():
+    """Отладочный эндпоинт для проверки Redis"""
+    try:
+        # Проверяем подключение
+        await redis.ping()
+        
+        # Пробуем записать тестовые данные
+        test_key = "test:connection"
+        await redis.set(test_key, "test_value", ex=60)
+        test_value = await redis.get(test_key)
+        
+        # Проверяем PubSub
+        test_channel = "test:channel"
+        await publish_event(test_channel, {"test": "message"})
+        
+        return {
+            "status": "ok",
+            "connection": "active",
+            "test_value": test_value,
+            "pubsub_messages_count": len(get_pubsub_messages())
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при отладке Redis: {e}")
+        return {
+            "status": "error",
+            "error": str(e)
+        }

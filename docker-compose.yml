@@ -10,3 +10,18 @@ services:
       - POSTGRES_USER=admin
       - POSTGRES_DB=db
     image: postgres:14.3-alpine
+    volumes:
+      - pet_owners_db:/data/postgres
+
+  redis:
+    container_name: redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+volumes:
+  pet_owners_db:
+  redis_data:
